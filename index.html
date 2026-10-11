@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spannungsteiler Simulation</title>
+  <title>Widerstandsschaltungen Simulation</title>
   <style>
     :root {
       --bg: #fdf6e3;
@@ -20,6 +20,7 @@
       --eq-text: #839496;
       --eq-highlight: #b58900;
       --eq-result: var(--primary); /* Farbe für Ergebnisse = Tab-Button-Farbe */
+      --point-color: #dc322f; /* Solarized Rot: Brückenpunkte A und B */
     }
 
     [data-theme="dark"] {
@@ -268,6 +269,18 @@
     .eq-step + .eq-step { border-top: 1px dashed rgba(147,161,161,0.25); padding-top: 6px; }
     .eq-line { margin: 3px 0; line-height: 1.5; }
     .eq-grid-wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+    .eq-grid-wide.eq-grid-3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+    .eq-block-res { border-left: 4px solid var(--eq-result); }
+    .eq-title-res { color: var(--eq-result); }
+    .eq-block-res .eq-sub { color: var(--eq-result); }
+    .eq-res-res { color: var(--eq-result); font-weight: bold; }
+    .eq-rule { font-size: 1.05rem; font-weight: bold; padding: 4px 0 6px 0; }
+    .eq-block-volt .eq-rule { color: var(--volt-color); }
+    .eq-block-curr .eq-rule { color: var(--curr-color); }
+    .eq-block-res .eq-rule { color: var(--eq-text); }
+    .eq-block-info { border-left: 4px solid var(--eq-highlight); }
+    .eq-info { margin: 3px 0; }
+    .eq-info b { color: var(--eq-highlight); }
     .eq-note { font-size: 0.78rem; opacity: 0.85; margin-top: 4px; }
     .eq-wide { grid-column: 1 / -1; }
 
@@ -275,13 +288,15 @@
     .frac {
       display: inline-flex;
       flex-direction: column;
-      align-items: center;
+      align-items: stretch;
       vertical-align: middle;
       margin: 0 4px;
       line-height: 1.25;
     }
-    .frac > span { padding: 0 4px; white-space: nowrap; }
-    .frac > span:first-child { border-bottom: 1.5px solid currentColor; }
+    .frac > span { padding: 0 4px; white-space: nowrap; text-align: center; }
+    .frac > span:first-child { border-bottom: 1px solid currentColor; }
+    .frac .frac { margin: 0 1px; }
+    .frac .frac > span { padding: 0 2px; }
 
     /* Brückenspannung hervorgehoben */
     .eq-block-bridge { border-left: 6px solid var(--volt-color); background: rgba(38,139,210,0.08); }
@@ -303,19 +318,20 @@
 
 <header>
   <div>
-    <h1>Spannungsteiler Simulation</h1>
+    <h1>Widerstandsschaltungen Simulation</h1>
     <div id="sub-title" style="font-size: 0.75rem; color: var(--text);">Klicken Sie auf die Spannungsquelle oder einen Widerstand, um den Wert anzupassen</div>
   </div>
   <div class="header-controls">
-    <button class="btn" id="btn-load" onclick="toggleLoad()">Lastwiderstand R<sub>L</sub>: Aus</button>
     <button class="theme-toggle" onclick="toggleTheme()">Dark / Light</button>
   </div>
 </header>
 
 <div class="main-layout">
   <div class="tabs">
-    <button class="tab-btn active" id="btn-tab-1" onclick="selectCircuit(1)">1. Spannungsteiler (unbelastet / belastet)</button>
-    <button class="tab-btn" id="btn-tab-2" onclick="selectCircuit(2)">2. Brückenschaltung</button>
+    <button class="tab-btn active" id="btn-tab-1" onclick="selectCircuit(1)">1. Serienschaltung</button>
+    <button class="tab-btn" id="btn-tab-2" onclick="selectCircuit(2)">2. Parallelschaltung</button>
+    <button class="tab-btn" id="btn-tab-3" onclick="selectCircuit(3)">3. Belasteter Spannungsteiler</button>
+    <button class="tab-btn" id="btn-tab-4" onclick="selectCircuit(4)">4. Brückenschaltung</button>
   </div>
 
   <div class="circuit-card">
@@ -349,12 +365,15 @@
 // ===================== Zustand =====================
 let activeCircuit = 1;
 let isAdvanced = false;      // Richtungen sind hier fest (Verbraucher-Zählpfeilsystem)
-let loadConnected = false;   // Schaltung 1: Lastwiderstand angeschlossen?
+let loadConnected = false;   // Schaltung 3: Lastwiderstand angeschlossen?
 let activeEditKey = null;
 
+// Serien- und Parallelschaltung: Quelle heisst U (= U_Tot), wie in den Regeln
 const circuitValues = {
-  1: { U1: 12, R1: 100, R2: 100, RL: 100 },
-  2: { U1: 12, R1: 100, R2: 100, R3: 50, R4: 150 }
+  1: { U: 12, R1: 100, R2: 200, R3: 300 },
+  2: { U: 12, R1: 100, R2: 200, R3: 50 },
+  3: { U1: 12, R1: 100, R2: 100, RL: 100 },
+  4: { U1: 12, R1: 100, R2: 100, R3: 50, R4: 150 }
 };
 let values = circuitValues[1];
 
@@ -367,25 +386,21 @@ function toggleTheme() {
 
 function toggleLoad() {
   loadConnected = !loadConnected;
-  const btn = document.getElementById('btn-load');
-  btn.innerHTML = `Lastwiderstand R<sub>L</sub>: ${loadConnected ? 'Ein' : 'Aus'}`;
-  btn.classList.toggle('btn-active', loadConnected);
   updateSimulation();
 }
 
 function selectCircuit(num) {
   activeCircuit = num;
   values = circuitValues[num];
-  document.getElementById('btn-tab-1').classList.toggle('active', num === 1);
-  document.getElementById('btn-tab-2').classList.toggle('active', num === 2);
-
-  document.getElementById('btn-load').style.display = (num === 1) ? 'inline-block' : 'none';
+  for (let k = 1; k <= 4; k++) {
+    document.getElementById(`btn-tab-${k}`).classList.toggle('active', num === k);
+  }
 
   updateSimulation();
 }
 
 function keyHtml(key) {
-  return `${key[0]}<sub>${key.substring(1)}</sub>`;
+  return key.length > 1 ? `${key[0]}<sub>${key.substring(1)}</sub>` : key;
 }
 
 function openEditModal(key) {
@@ -497,6 +512,44 @@ function renderSVG() {
   const wire = (x1, y1, x2, y2, extra = {}) => svg.appendChild(createEl('line', Object.assign({ x1, y1, x2, y2, class: 'wire' }, extra)));
 
   if (activeCircuit === 1) {
+    const { U, R1, R2, R3 } = values;
+    // Serienschaltung: Quelle links, R1–R3 in der oberen Leitung
+    svg.appendChild(createEl('rect', { x: 140, y: 65, width: 420, height: 170, class: 'wire' }));
+    drawSource(svg, 140, 150, 'U', U, 'right');
+    drawResistor(svg, 250, 65, 'R1', R1, 'bottom');
+    drawResistor(svg, 350, 65, 'R2', R2, 'bottom');
+    drawResistor(svg, 450, 65, 'R3', R3, 'bottom');
+
+    drawSourceVoltageArrow(svg, 105, 100, 105, 200, 'U', 'left', 1);
+    drawVoltageArrow(svg, 215, 25, 285, 25, 'UR1', 'top');
+    drawVoltageArrow(svg, 315, 25, 385, 25, 'UR2', 'top');
+    drawVoltageArrow(svg, 415, 25, 485, 25, 'UR3', 'top');
+
+    drawCurrentArrow(svg, 170, 65, 205, 65, 'I', 'top');
+    drawCurrentArrow(svg, 560, 130, 560, 170, 'I', 'right');
+  } else if (activeCircuit === 2) {
+    const { U, R1, R2, R3 } = values;
+    // Parallelschaltung: drei Zweige bei x = 270, 410, 550
+    svg.appendChild(createEl('rect', { x: 110, y: 45, width: 440, height: 220, class: 'wire' }));
+    wire(270, 45, 270, 265);
+    wire(410, 45, 410, 265);
+    node(270, 45); node(410, 45); node(270, 265); node(410, 265);
+
+    drawSource(svg, 110, 155, 'U', U, 'right');
+    drawResistor(svg, 270, 155, 'R1', R1, 'right', 'v');
+    drawResistor(svg, 410, 155, 'R2', R2, 'right', 'v');
+    drawResistor(svg, 550, 155, 'R3', R3, 'right', 'v');
+
+    drawSourceVoltageArrow(svg, 75, 105, 75, 205, 'U', 'left', 1);
+    drawVoltageArrow(svg, 248, 115, 248, 195, 'UR1', 'left');
+    drawVoltageArrow(svg, 388, 115, 388, 195, 'UR2', 'left');
+    drawVoltageArrow(svg, 528, 115, 528, 195, 'UR3', 'left');
+
+    drawCurrentArrow(svg, 165, 45, 205, 45, 'I', 'top');
+    drawCurrentArrow(svg, 270, 82, 270, 110, 'IR1', 'right');
+    drawCurrentArrow(svg, 410, 82, 410, 110, 'IR2', 'right');
+    drawCurrentArrow(svg, 550, 82, 550, 110, 'IR3', 'right');
+  } else if (activeCircuit === 3) {
     const { U1, R1, R2, RL } = values;
     // Masche Quelle – R1 – R2: Quelle x = 110, Teiler x = 300, oben y = 45, unten y = 265, Mittelabgriff y = 155
     svg.appendChild(createEl('rect', { x: 110, y: 45, width: 190, height: 220, class: 'wire' }));
@@ -543,8 +596,10 @@ function renderSVG() {
     drawVoltageArrow(svg, 260, 165, 260, 255, loadConnected ? 'UR2L' : 'UR2', 'left');
 
     drawCurrentArrow(svg, 190, 45, 230, 45, 'I', 'top');
-    drawCurrentArrow(svg, 300, 236, 300, 260, 'IR2', 'right');
-  } else {
+    drawCurrentArrow(svg, 300, 160, 300, 186, 'IR2', 'right');
+
+    drawLoadButton(svg, 420, 60, 170, 28);
+  } else if (activeCircuit === 4) {
     const { U1, R1, R2, R3, R4 } = values;
     // Zwei Spannungsteiler parallel: links R1/R2 (x = 280), rechts R3/R4 (x = 480)
     svg.appendChild(createEl('rect', { x: 110, y: 45, width: 370, height: 220, class: 'wire' }));
@@ -554,15 +609,16 @@ function renderSVG() {
     wire(280, 155, 364, 155);
     wire(396, 155, 480, 155);
     node(280, 45); node(280, 265);
-    node(280, 155); node(480, 155);
+    svg.appendChild(createEl('circle', { cx: 280, cy: 155, r: 5, fill: 'var(--point-color)' }));
+    svg.appendChild(createEl('circle', { cx: 480, cy: 155, r: 5, fill: 'var(--point-color)' }));
 
     svg.appendChild(createEl('circle', { cx: 380, cy: 155, r: 16, fill: 'var(--bg)', stroke: 'var(--text-bold)', 'stroke-width': 2 }));
     const vt = createEl('text', { x: 380, y: 160, 'text-anchor': 'middle', class: 'component-text', 'font-size': '13' });
     vt.textContent = 'V';
     svg.appendChild(vt);
 
-    const tA = createEl('text', { x: 290, y: 172, class: 'component-text', 'font-size': '13' }); tA.textContent = 'A'; svg.appendChild(tA);
-    const tB = createEl('text', { x: 470, y: 172, 'text-anchor': 'end', class: 'component-text', 'font-size': '13' }); tB.textContent = 'B'; svg.appendChild(tB);
+    const tA = createEl('text', { x: 290, y: 174, class: 'component-text', 'font-size': '14', style: 'fill: var(--point-color)' }); tA.textContent = 'A'; svg.appendChild(tA);
+    const tB = createEl('text', { x: 470, y: 174, 'text-anchor': 'end', class: 'component-text', 'font-size': '14', style: 'fill: var(--point-color)' }); tB.textContent = 'B'; svg.appendChild(tB);
 
     drawSource(svg, 110, 155, 'U1', U1, 'right');
     drawResistor(svg, 280, 100, 'R1', R1, 'right', 'v');
@@ -577,7 +633,8 @@ function renderSVG() {
     drawVoltageArrow(svg, 440, 165, 440, 255, 'UR4', 'left');
 
     // Brückenspannung U_AB von A nach B
-    drawVoltageArrow(svg, 335, 132, 425, 132, 'UAB', 'top');
+    const balanced = computeBridge(values).balanced;
+    drawVoltageArrow(svg, 335, 132, 425, 132, 'UAB', 'top', balanced ? 'var(--accent-m)' : 'var(--volt-color)', balanced ? 'arr-m' : 'arr-v');
   }
 }
 
@@ -612,7 +669,9 @@ function drawSource(svg, cx, cy, name, val, textPos = 'left') {
   txt.setAttribute('y', cy + 4);
   txt.setAttribute('class', 'component-text');
 
-  txt.innerHTML = `${name[0]}<tspan dy="3" font-size="9">${name[1]}</tspan><tspan dy="-3" font-size="11"> (${val}V)</tspan>`;
+  txt.innerHTML = name.length > 1
+    ? `${name[0]}<tspan dy="3" font-size="9">${name.substring(1)}</tspan><tspan dy="-3" font-size="11"> (${val}V)</tspan>`
+    : `${name} (${val}V)`;
   g.appendChild(txt);
 
   svg.appendChild(g);
@@ -650,6 +709,30 @@ function drawResistor(svg, cx, cy, name, val, textPos, orient = 'h') {
   svg.appendChild(g);
 }
 
+// Schalter für den Lastwiderstand direkt im Schaltplan
+function drawLoadButton(svg, x, y, w, h) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const g = document.createElementNS(ns, 'g');
+  g.setAttribute('class', 'interactive-element');
+  g.setAttribute('onclick', 'toggleLoad()');
+  const rect = document.createElementNS(ns, 'rect');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', 4);
+  rect.setAttribute('fill', loadConnected ? 'var(--primary)' : 'var(--panel-bg)');
+  rect.setAttribute('stroke', loadConnected ? 'var(--primary)' : 'var(--border)');
+  rect.setAttribute('stroke-width', '1');
+  g.appendChild(rect);
+  const txt = document.createElementNS(ns, 'text');
+  txt.setAttribute('x', x + w / 2); txt.setAttribute('y', y + h / 2 + 4);
+  txt.setAttribute('text-anchor', 'middle');
+  txt.setAttribute('font-size', '12'); txt.setAttribute('font-weight', 'bold');
+  txt.setAttribute('fill', loadConnected ? '#ffffff' : 'var(--text-bold)');
+  txt.innerHTML = `Lastwiderstand R<tspan dy="3" font-size="9">L</tspan><tspan dy="-3">: ${loadConnected ? 'Ein' : 'Aus'}</tspan>`;
+  g.appendChild(txt);
+  svg.appendChild(g);
+}
+
 function drawSourceVoltageArrow(svg, x1, y1, x2, y2, label, pos, dir) {
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
@@ -678,19 +761,19 @@ function drawSourceVoltageArrow(svg, x1, y1, x2, y2, label, pos, dir) {
   txt.setAttribute('fill', 'var(--volt-color)');
   txt.setAttribute('font-weight', 'bold');
 
-  txt.innerHTML = `U<tspan dy="3" font-size="8">${label[1]}</tspan>`;
+  txt.innerHTML = `U<tspan dy="3" font-size="8">${label.substring(1)}</tspan>`;
   g.appendChild(txt);
   svg.appendChild(g);
 }
 
-function drawVoltageArrow(svg, x1, y1, x2, y2, label, pos) {
+function drawVoltageArrow(svg, x1, y1, x2, y2, label, pos, color = 'var(--volt-color)', marker = 'arr-v') {
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
-  path.setAttribute('stroke', 'var(--volt-color)');
+  path.setAttribute('stroke', color);
   path.setAttribute('stroke-width', '1.8');
-  path.setAttribute('marker-end', 'url(#arr-v)');
+  path.setAttribute('marker-end', `url(#${marker})`);
   g.appendChild(path);
 
   const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -705,7 +788,7 @@ function drawVoltageArrow(svg, x1, y1, x2, y2, label, pos) {
   txt.setAttribute('x', tx);
   txt.setAttribute('y', ty);
   txt.setAttribute('font-size', '11');
-  txt.setAttribute('fill', 'var(--volt-color)');
+  txt.setAttribute('fill', color);
   txt.setAttribute('font-weight', 'bold');
 
   txt.innerHTML = `U<tspan dy="3" font-size="8">${label.substring(1)}</tspan>`;
@@ -800,8 +883,148 @@ function computeBridge(v) {
 function calculateAndDisplay() {
   const out = document.getElementById('equation-display');
   out.classList.add('eq-grid-wide');
-  if (activeCircuit === 1) out.innerHTML = displayDivider();
+  out.classList.toggle('eq-grid-3', activeCircuit <= 2);
+  if (activeCircuit === 1) out.innerHTML = displaySeries();
+  else if (activeCircuit === 2) out.innerHTML = displayParallel();
+  else if (activeCircuit === 3) out.innerHTML = displayDivider();
   else out.innerHTML = displayBridge();
+}
+
+// ===================== Serien- und Parallelschaltung =====================
+function computeSeries(v) {
+  const { U, R1, R2, R3 } = v;
+  const warnings = [];
+  const Rtot = R1 + R2 + R3;
+  const sol = solveBranch(U, Rtot);
+  let I = sol.I, UR = [null, null, null];
+  if (sol.state === 'contradiction') {
+    warnings.push('Kurzschluss: R<sub>Tot</sub> = 0 Ω bei U ≠ 0 V. Die ideale Quelle ist kurzgeschlossen, die Werte sind nicht bestimmbar.');
+  } else if (sol.state === 'undetermined') {
+    UR = [0, 0, 0];
+    warnings.push('R<sub>Tot</sub> = 0 Ω und U = 0 V: Der Strom ist nicht festgelegt.');
+  } else {
+    UR = [R1 * I, R2 * I, R3 * I];
+  }
+  return { Rtot, I, UR, warnings };
+}
+
+function computeParallel(v) {
+  const { U, R1, R2, R3 } = v;
+  const Rs = [R1, R2, R3];
+  const warnings = [];
+  let IR = Rs.map(r => solveBranch(U, r));
+  const hasZero = Rs.some(r => r === 0);
+  const Rtot = hasZero ? 0 : 1 / (1 / R1 + 1 / R2 + 1 / R3);
+  if (hasZero && U !== 0) warnings.push('Ein Widerstand mit 0 Ω schliesst die ideale Quelle kurz. Die Ströme sind nicht bestimmbar.');
+  if (hasZero && U === 0) warnings.push('Ein Widerstand hat 0 Ω und U = 0 V: Die Stromaufteilung ist nicht festgelegt.');
+  const I_R = IR.map(x => x.I);
+  const I = (hasZero) ? null : I_R[0] + I_R[1] + I_R[2];
+  return { Rtot, I, IR: hasZero ? [null, null, null] : I_R, warnings };
+}
+
+// Index des eindeutig grössten / kleinsten Wertes (null bei Gleichstand)
+function argExt(arr, max) {
+  let best = max ? Math.max(...arr) : Math.min(...arr);
+  const idx = arr.map((x, i) => x === best ? i : -1).filter(i => i >= 0);
+  return idx;
+}
+const listNames = (idx, base) => idx.map(i => S(base, i + 1)).join(', ');
+
+function displaySeries() {
+  const v = values;
+  const r = computeSeries(v);
+  const Rs = [v.R1, v.R2, v.R3];
+
+  const curr = `<div class="eq-block eq-block-curr">
+    <div class="eq-title eq-title-curr">1. Regel – Strom</div>
+    <div class="eq-rule">I = ${S('I', 'Tot')} = ${S('I', 'R1')} = ${S('I', 'R2')} = ${S('I', 'R3')}</div>
+    <div class="eq-step">
+      ${line(`I = ${frac('U', S('R', 'Tot'))}`)}
+      ${line(`I = ${frac(vU(v.U), fR(r.Rtot))}`, 'eq-sub')}
+      ${line(`<span class="eq-res-curr">I = ${fA(r.I)}</span>`)}
+      <div class="eq-note">Der Strom ist überall gleich gross: ${S('I', 'R1')} = ${S('I', 'R2')} = ${S('I', 'R3')} = ${fmt(r.I, 3)} A</div>
+    </div>
+  </div>`;
+
+  const volt = `<div class="eq-block eq-block-volt">
+    <div class="eq-title eq-title-volt">2. Regel – Spannung</div>
+    <div class="eq-rule">U = ${S('U', 'Tot')} = ${S('U', 'R1')} + ${S('U', 'R2')} + ${S('U', 'R3')}</div>
+    <div class="eq-step">
+      ${[0, 1, 2].map(k => line(`${S('U', 'R' + (k + 1))} = ${S('R', k + 1)} · I = ${vR(Rs[k])} · ${fmt(r.I, 3)} A = <span class="eq-res-volt">${fV(r.UR[k])}</span>`)).join('')}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('U', 'Tot')} = ${fV(r.UR[0])} + ${fV(r.UR[1])} + ${fV(r.UR[2])}`, 'eq-sub')}
+      ${line(`<span class="eq-res-volt">${S('U', 'Tot')} = ${fV(r.UR[0] === null ? null : r.UR[0] + r.UR[1] + r.UR[2])}</span>`)}
+    </div>
+  </div>`;
+
+  const res = `<div class="eq-block eq-block-res">
+    <div class="eq-title eq-title-res">3. Regel – Widerstand</div>
+    <div class="eq-rule">R = ${S('R', 'Tot')} = ${S('R', '1')} + ${S('R', '2')} + ${S('R', '3')}</div>
+    <div class="eq-step">
+      ${line(`${S('R', 'Tot')} = ${vR(v.R1)} + ${vR(v.R2)} + ${vR(v.R3)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-res">${S('R', 'Tot')} = ${fR(r.Rtot)}</span>`)}
+    </div>
+  </div>`;
+
+  let info = '';
+  if (r.UR[0] !== null && r.I) {
+    const iMax = argExt(Rs, true);
+    info = `<div class="eq-info"><b>Die grösste Spannung fällt am grössten Widerstand ab:</b> ${listNames(iMax, 'R')} = ${vR(Rs[iMax[0]])} → ${iMax.map(i => S('U', 'R' + (i + 1))).join(', ')} = ${fV(r.UR[iMax[0]])}</div>`;
+  } else {
+    info = `<div class="eq-info"><b>Die grösste Spannung fällt am grössten Widerstand ab.</b></div>`;
+  }
+  return curr + volt + res + `<div class="eq-block eq-block-info eq-wide">${info}${warningHtml(r.warnings)}</div>`;
+}
+
+function displayParallel() {
+  const v = values;
+  const r = computeParallel(v);
+  const Rs = [v.R1, v.R2, v.R3];
+  const ok = r.I !== null;
+
+  const curr = `<div class="eq-block eq-block-curr">
+    <div class="eq-title eq-title-curr">1. Regel – Strom</div>
+    <div class="eq-rule">I = ${S('I', 'Tot')} = ${S('I', 'R1')} + ${S('I', 'R2')} + ${S('I', 'R3')}</div>
+    <div class="eq-step">
+      ${[0, 1, 2].map(k => line(`${S('I', 'R' + (k + 1))} = ${frac('U', S('R', k + 1))} = ${frac(vU(v.U), vR(Rs[k]))} = <span class="eq-res-curr">${fmt(r.IR[k], 3)} A</span>`)).join('')}
+    </div>
+    <div class="eq-step">
+      ${line(`I = ${fmt(r.IR[0], 3)} A + ${fmt(r.IR[1], 3)} A + ${fmt(r.IR[2], 3)} A`, 'eq-sub')}
+      ${line(`<span class="eq-res-curr">I = ${fA(r.I)}</span>`)}
+    </div>
+  </div>`;
+
+  const volt = `<div class="eq-block eq-block-volt">
+    <div class="eq-title eq-title-volt">2. Regel – Spannung</div>
+    <div class="eq-rule">U = ${S('U', 'Tot')} = ${S('U', 'R1')} = ${S('U', 'R2')} = ${S('U', 'R3')}</div>
+    <div class="eq-step">
+      ${line(`${S('U', 'R1')} = ${S('U', 'R2')} = ${S('U', 'R3')} = U`, 'eq-sub')}
+      ${line(`<span class="eq-res-volt">${S('U', 'R1')} = ${S('U', 'R2')} = ${S('U', 'R3')} = ${fV(v.U)}</span>`)}
+      <div class="eq-note">An allen Zweigen liegt dieselbe Spannung wie an der Quelle.</div>
+    </div>
+  </div>`;
+
+  const res = `<div class="eq-block eq-block-res">
+    <div class="eq-title eq-title-res">3. Regel – Widerstand</div>
+    <div class="eq-rule">R = ${S('R', 'Tot')} = ${frac('1', `${frac('1', S('R', '1'))} + ${frac('1', S('R', '2'))} + ${frac('1', S('R', '3'))}`)}</div>
+    <div class="eq-step">
+      ${line(`${S('R', 'Tot')} = ${frac('1', `${frac('1', vR(v.R1))} + ${frac('1', vR(v.R2))} + ${frac('1', vR(v.R3))}`)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-res">${S('R', 'Tot')} = ${fR(r.Rtot)}</span>`)}
+      <div class="eq-note">Für 2 Widerstände gilt: ${S('R', 'Tot')} = ${frac(`${S('R', '1')} · ${S('R', '2')}`, `${S('R', '1')} + ${S('R', '2')}`)}</div>
+    </div>
+  </div>`;
+
+  let info;
+  if (ok && v.U !== 0) {
+    const iMin = argExt(Rs, false);
+    info = `<div class="eq-info"><b>Der Ersatzwiderstand ist immer kleiner als der kleinste Einzelwiderstand:</b> ${S('R', 'Tot')} = ${fR(r.Rtot)} &lt; ${listNames(iMin, 'R')} = ${vR(Rs[iMin[0]])}</div>
+      <div class="eq-info"><b>Der grösste Strom fliesst beim kleinsten Widerstand:</b> ${listNames(iMin, 'R')} = ${vR(Rs[iMin[0]])} → ${iMin.map(i => S('I', 'R' + (i + 1))).join(', ')} = ${fmt(r.IR[iMin[0]], 3)} A</div>`;
+  } else {
+    info = `<div class="eq-info"><b>Der Ersatzwiderstand ist immer kleiner als der kleinste Einzelwiderstand.</b></div>
+      <div class="eq-info"><b>Der grösste Strom fliesst beim kleinsten Widerstand.</b></div>`;
+  }
+  return curr + volt + res + `<div class="eq-block eq-block-info eq-wide">${info}${warningHtml(r.warnings)}</div>`;
 }
 
 function displayDivider() {
@@ -842,7 +1065,7 @@ function displayDivider() {
 
   // ---------- Strom (rot/orange) ----------
   let curr = `<div class="eq-block eq-block-curr">
-    <div class="eq-title eq-title-curr">Ströme – Ohmsches Gesetz</div>
+    <div class="eq-title eq-title-curr">Ströme – ${L ? 'belastet' : 'unbelastet'}</div>
     <div class="eq-step">
       ${line(`I = ${frac(S('U', '1'), `${S('R', '1')} + ${Rn}`)}`)}
       ${line(`I = ${frac(vU(v.U1), `${vR(v.R1)} + ${RnVal}`)}`, 'eq-sub')}
@@ -875,7 +1098,7 @@ function displayBridge() {
   const r = computeBridge(v);
 
   const block = (Un, Ra, Rb, a, b, val, side) => `<div class="eq-block eq-block-volt">
-    <div class="eq-title eq-title-volt">${side}: Spannung ${S('U', Un)}</div>
+    <div class="eq-title eq-title-volt">${side}</div>
     <div class="eq-step">
       ${line(`${S('U', Un)} = ${S('U', '1')} · ${frac(S('R', Rb), `${S('R', Ra)} + ${S('R', Rb)}`)}`)}
       ${line(`${S('U', Un)} = ${vU(v.U1)} · ${frac(vR(b), `${vR(a)} + ${vR(b)}`)}`, 'eq-sub')}
