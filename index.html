@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spannungsteiler Simulation</title>
+  <style>
+    :root {
+      --bg: #fdf6e3;
+      --panel-bg: #eee8d5;
+      --text: #657b83;
+      --text-bold: #073642;
+      --border: #93a1a1;
+      --primary: #268bd2; /* Solarized Blau (Tab-Buttons) */
+      --accent-m: #859900; /* Grün/Oliv für Maschen */
+      --volt-color: #268bd2;
+      --curr-color: #cb4b16; /* Solarized Orange für Ströme */
+      --node-color: var(--curr-color); /* Farbe für Knotensatz = Stromfarbe */
+      --eq-bg: #073642;
+      --eq-text: #839496;
+      --eq-highlight: #b58900;
+      --eq-result: var(--primary); /* Farbe für Ergebnisse = Tab-Button-Farbe */
+    }
+
+    [data-theme="dark"] {
+      --bg: #002b36;
+      --panel-bg: #073642;
+      --text: #839496;
+      --text-bold: #93a1a1;
+      --border: #586e75;
+      --primary: #2aa198;
+      --accent-m: #859900;
+      --volt-color: #268bd2;
+      --curr-color: #cb4b16;
+      --node-color: var(--curr-color);
+      --eq-bg: #001e26;
+      --eq-text: #93a1a1;
+      --eq-highlight: #b58900;
+      --eq-result: var(--primary);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 12px;
+      background-color: var(--bg);
+      color: var(--text);
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      color: var(--text-bold);
+      font-size: 1.25rem;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .theme-toggle, .btn {
+      background: var(--panel-bg);
+      color: var(--text-bold);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 0.85rem;
+    }
+
+    .btn-active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .tab-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      background: var(--panel-bg);
+      color: var(--text-bold);
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    .main-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 920px;
+      margin: 0 auto;
+    }
+
+    .circuit-card {
+      background: var(--panel-bg);
+      border-radius: 6px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    .circuit-view {
+      width: 100%;
+      height: 310px;
+      background: var(--bg);
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      user-select: none;
+    }
+
+    .interactive-element {
+      cursor: pointer;
+    }
+    .interactive-element:hover {
+      filter: drop-shadow(0 0 4px var(--primary));
+    }
+
+    .eq-card {
+      background: var(--eq-bg);
+      color: var(--eq-text);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 0.88rem;
+      line-height: 1.4;
+      box-shadow: inset 0 0 6px rgba(0,0,0,0.3);
+    }
+
+    .eq-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .eq-block {
+      background: rgba(255,255,255,0.03);
+      padding: 8px;
+      border-radius: 4px;
+    }
+
+    .eq-block-mesh {
+      border-left: 4px solid var(--accent-m);
+    }
+
+    .eq-block-node {
+      border-left: 4px solid var(--node-color);
+    }
+
+    .eq-block-result {
+      border-left: 4px solid var(--eq-result);
+    }
+
+    .eq-title {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    .eq-title-mesh {
+      color: var(--accent-m);
+    }
+
+    .eq-title-node {
+      color: var(--node-color);
+    }
+
+    .eq-title-result {
+      color: var(--eq-result);
+    }
+
+    .eq-sub {
+      color: #268bd2;
+      font-size: 0.82rem;
+    }
+
+    .eq-res {
+      color: var(--eq-result);
+      font-weight: bold;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .modal {
+      background: var(--panel-bg);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      width: 280px;
+      color: var(--text-bold);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .modal h3 {
+      margin: 0 0 12px 0;
+      font-size: 1rem;
+    }
+
+    .modal-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .modal-controls input[type="number"] {
+      width: 80px;
+      padding: 4px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 14px;
+    }
+
+    .wire { stroke: var(--text-bold); stroke-width: 2; fill: none; }
+    .component-text { font-size: 11px; font-weight: bold; fill: var(--text-bold); }
+
+    /* ---- Ergänzungen für die Spannungsteiler-Simulation ---- */
+    /* Spannungsblöcke = Blau, Stromblöcke = Stromfarbe (analog zur Pfeilfarbe im Schaltplan) */
+    .eq-block-volt { border-left: 4px solid var(--volt-color); }
+    .eq-block-curr { border-left: 4px solid var(--curr-color); }
+    .eq-title-volt { color: var(--volt-color); }
+    .eq-title-curr { color: var(--curr-color); }
+    .eq-block-curr .eq-sub { color: var(--curr-color); }
+    .eq-res-volt { color: var(--volt-color); font-weight: bold; }
+    .eq-res-curr { color: var(--curr-color); font-weight: bold; }
+    .eq-step { margin: 6px 0 2px 0; }
+    .eq-step + .eq-step { border-top: 1px dashed rgba(147,161,161,0.25); padding-top: 6px; }
+    .eq-line { margin: 3px 0; line-height: 1.5; }
+    .eq-grid-wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+    .eq-note { font-size: 0.78rem; opacity: 0.85; margin-top: 4px; }
+    .eq-wide { grid-column: 1 / -1; }
+
+    /* Bruchdarstellung */
+    .frac {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      vertical-align: middle;
+      margin: 0 4px;
+      line-height: 1.25;
+    }
+    .frac > span { padding: 0 4px; white-space: nowrap; }
+    .frac > span:first-child { border-bottom: 1.5px solid currentColor; }
+
+    /* Brückenspannung hervorgehoben */
+    .eq-block-bridge { border-left: 6px solid var(--volt-color); background: rgba(38,139,210,0.08); }
+    .eq-big { font-size: 1.35rem; line-height: 1.6; }
+    .eq-big .eq-res-volt { font-size: 1.6rem; }
+    .bridge-state { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 0.85rem; border: 1px solid currentColor; }
+    .bridge-ok { color: var(--accent-m); }
+    .bridge-off { color: var(--eq-highlight); }
+
+    @media (max-width: 640px) {
+      header { flex-wrap: wrap; gap: 8px; }
+      .tabs { flex-wrap: wrap; }
+      .eq-big { font-size: 1.1rem; }
+      .eq-big .eq-res-volt { font-size: 1.3rem; }
+    }
+  </style>
+</head>
+<body data-theme="dark">
+
+<header>
+  <div>
+    <h1>Spannungsteiler Simulation</h1>
+    <div id="sub-title" style="font-size: 0.75rem; color: var(--text);">Klicken Sie auf die Spannungsquelle oder einen Widerstand, um den Wert anzupassen</div>
+  </div>
+  <div class="header-controls">
+    <button class="btn" id="btn-load" onclick="toggleLoad()">Lastwiderstand R<sub>L</sub>: Aus</button>
+    <button class="theme-toggle" onclick="toggleTheme()">Dark / Light</button>
+  </div>
+</header>
+
+<div class="main-layout">
+  <div class="tabs">
+    <button class="tab-btn active" id="btn-tab-1" onclick="selectCircuit(1)">1. Spannungsteiler (unbelastet / belastet)</button>
+    <button class="tab-btn" id="btn-tab-2" onclick="selectCircuit(2)">2. Brückenschaltung</button>
+  </div>
+
+  <div class="circuit-card">
+    <div class="circuit-view">
+      <svg id="circuit-svg" viewBox="0 0 640 310"></svg>
+    </div>
+  </div>
+
+  <div class="eq-card">
+    <div class="eq-grid" id="equation-display"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <h3 id="modal-title">Wert anpassen</h3>
+    <div class="modal-controls">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <label for="modal-input">Wert:</label>
+        <input type="number" id="modal-input" step="0.5" oninput="syncModalInput()">
+      </div>
+      <input type="range" id="modal-slider" min="1" max="100" step="0.5" oninput="syncModalSlider()">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===================== Zustand =====================
+let activeCircuit = 1;
+let isAdvanced = false;      // Richtungen sind hier fest (Verbraucher-Zählpfeilsystem)
+let loadConnected = false;   // Schaltung 1: Lastwiderstand angeschlossen?
+let activeEditKey = null;
+
+const circuitValues = {
+  1: { U1: 12, R1: 100, R2: 100, RL: 100 },
+  2: { U1: 12, R1: 100, R2: 100, R3: 50, R4: 150 }
+};
+let values = circuitValues[1];
+
+// ===================== UI-Funktionen =====================
+function toggleTheme() {
+  const body = document.body;
+  const next = body.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  body.setAttribute('data-theme', next);
+}
+
+function toggleLoad() {
+  loadConnected = !loadConnected;
+  const btn = document.getElementById('btn-load');
+  btn.innerHTML = `Lastwiderstand R<sub>L</sub>: ${loadConnected ? 'Ein' : 'Aus'}`;
+  btn.classList.toggle('btn-active', loadConnected);
+  updateSimulation();
+}
+
+function selectCircuit(num) {
+  activeCircuit = num;
+  values = circuitValues[num];
+  document.getElementById('btn-tab-1').classList.toggle('active', num === 1);
+  document.getElementById('btn-tab-2').classList.toggle('active', num === 2);
+
+  document.getElementById('btn-load').style.display = (num === 1) ? 'inline-block' : 'none';
+
+  updateSimulation();
+}
+
+function keyHtml(key) {
+  return `${key[0]}<sub>${key.substring(1)}</sub>`;
+}
+
+function openEditModal(key) {
+  activeEditKey = key;
+  const isVolt = key.startsWith('U');
+  document.getElementById('modal-title').innerHTML = `${keyHtml(key)} Wert anpassen (${isVolt ? 'V' : 'Ω'})`;
+
+  const valInput = document.getElementById('modal-input');
+  const valSlider = document.getElementById('modal-slider');
+
+  valInput.value = values[key];
+  valInput.min = isVolt ? '' : 0;
+  valSlider.min = 0;
+  valSlider.max = isVolt ? 50 : 200;
+  valSlider.value = values[key];
+
+  document.getElementById('edit-modal').style.display = 'flex';
+}
+
+function syncModalSlider() {
+  const val = parseFloat(document.getElementById('modal-slider').value) || 0;
+  document.getElementById('modal-input').value = val;
+  values[activeEditKey] = val;
+  updateSimulation();
+}
+
+function syncModalInput() {
+  const input = document.getElementById('modal-input');
+  let val = parseFloat(input.value) || 0;
+  // Widerstände können nicht negativ sein (0 Ω = ideale Leitung ist erlaubt)
+  if (activeEditKey.startsWith('R') && val < 0) { val = 0; input.value = 0; }
+  document.getElementById('modal-slider').value = val;
+  values[activeEditKey] = val;
+  updateSimulation();
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').style.display = 'none';
+}
+
+function updateSimulation() {
+  renderSVG();
+  calculateAndDisplay();
+}
+
+// ===================== Hilfsfunktionen =====================
+// Zahl formatieren; nicht bestimmbare Werte (null / ±∞ / NaN) als "—"
+function fmt(x, digits) {
+  return (x === null || !Number.isFinite(x)) ? '—' : x.toFixed(digits);
+}
+
+// Löst R·I = ΔU für einen Zweig. Bei R = 0 gibt es zwei Sonderfälle:
+//  ΔU ≠ 0 → Widerspruch (ideale Quelle kurzgeschlossen)
+//  ΔU = 0 → Strom nicht festgelegt (jeder Wert erfüllt die Gleichung)
+function solveBranch(dU, R) {
+  if (R !== 0) return { I: dU / R, state: 'ok' };
+  return { I: null, state: (dU === 0) ? 'undetermined' : 'contradiction' };
+}
+
+function warningHtml(msgs) {
+  if (!msgs.length) return '';
+  return msgs.map(m => `<div style="color: var(--eq-highlight); margin-top: 4px;">⚠ ${m}</div>`).join('');
+}
+
+// Formel-Bausteine
+const S = (b, s) => `${b}<sub>${s}</sub>`;                       // Grösse mit Index
+const frac = (n, d) => `<span class="frac"><span>${n}</span><span>${d}</span></span>`;
+const line = (html, cls = '') => `<div class="eq-line ${cls}">${html}</div>`;
+const vU = v => `${v} V`;
+const vR = v => `${v} Ω`;
+const fV = x => `${fmt(x, 2)} V`;
+const fA = x => (x === null || !Number.isFinite(x)) ? '— A' : `${x.toFixed(3)} A <span style="font-weight:normal; opacity:0.75;">(${(x * 1000).toFixed(1)} mA)</span>`;
+const fR = x => `${fmt(x, 2)} Ω`;
+
+// Parallelschaltung zweier Widerstände (0 Ω schliesst kurz → 0 Ω)
+function parallel(a, b) {
+  if (a === 0 || b === 0) return 0;
+  return a * b / (a + b);
+}
+
+// ===================== Schaltplan =====================
+function renderSVG() {
+  const svg = document.getElementById('circuit-svg');
+  svg.innerHTML = '';
+
+  const createEl = (tag, attrs) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (let k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  };
+
+  const defs = createEl('defs');
+
+  const mVolt = createEl('marker', { id: 'arr-v', viewBox: '0 0 10 10', refX: '6', refY: '5', markerWidth: '5', markerHeight: '5', orient: 'auto-start-reverse' });
+  mVolt.appendChild(createEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: 'var(--volt-color)' }));
+  defs.appendChild(mVolt);
+
+  const mCurr = createEl('marker', { id: 'arr-c', viewBox: '0 0 10 10', refX: '6', refY: '5', markerWidth: '5', markerHeight: '5', orient: 'auto-start-reverse' });
+  mCurr.appendChild(createEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: 'var(--curr-color)' }));
+  defs.appendChild(mCurr);
+
+  const mMesh = createEl('marker', { id: 'arr-m', viewBox: '0 0 10 10', refX: '6', refY: '5', markerWidth: '5', markerHeight: '5', orient: 'auto-start-reverse' });
+  mMesh.appendChild(createEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: 'var(--accent-m)' }));
+  defs.appendChild(mMesh);
+
+  svg.appendChild(defs);
+
+  const node = (x, y) => svg.appendChild(createEl('circle', { cx: x, cy: y, r: 4, fill: 'var(--text-bold)' }));
+  const wire = (x1, y1, x2, y2, extra = {}) => svg.appendChild(createEl('line', Object.assign({ x1, y1, x2, y2, class: 'wire' }, extra)));
+
+  if (activeCircuit === 1) {
+    const { U1, R1, R2, RL } = values;
+    // Masche Quelle – R1 – R2: Quelle x = 110, Teiler x = 300, oben y = 45, unten y = 265, Mittelabgriff y = 155
+    svg.appendChild(createEl('rect', { x: 110, y: 45, width: 190, height: 220, class: 'wire' }));
+
+    // Abgriff zur Last
+    if (loadConnected) {
+      wire(300, 155, 460, 155);
+      wire(300, 265, 460, 265);
+      wire(460, 155, 460, 265);
+      node(300, 155);
+      node(300, 265);
+      drawResistor(svg, 460, 210, 'RL', RL, 'right', 'v');
+      drawCurrentArrow(svg, 360, 155, 400, 155, 'IL', 'top');
+      drawVoltageArrow(svg, 420, 165, 420, 255, 'URL', 'left');
+    } else {
+      // Offene Ausgangsklemmen und abgetrennte Last (klickbar → Last zuschalten)
+      wire(300, 155, 400, 155);
+      wire(300, 265, 400, 265);
+      node(300, 155);
+      node(300, 265);
+      svg.appendChild(createEl('circle', { cx: 404, cy: 155, r: 4, fill: 'var(--bg)', stroke: 'var(--text-bold)', 'stroke-width': 2 }));
+      svg.appendChild(createEl('circle', { cx: 404, cy: 265, r: 4, fill: 'var(--bg)', stroke: 'var(--text-bold)', 'stroke-width': 2 }));
+
+      const g = createEl('g', { class: 'interactive-element', onclick: 'toggleLoad()', opacity: '0.45' });
+      g.appendChild(createEl('line', { x1: 430, y1: 155, x2: 470, y2: 155, stroke: 'var(--text-bold)', 'stroke-width': 2, 'stroke-dasharray': '4 4' }));
+      g.appendChild(createEl('line', { x1: 430, y1: 265, x2: 470, y2: 265, stroke: 'var(--text-bold)', 'stroke-width': 2, 'stroke-dasharray': '4 4' }));
+      g.appendChild(createEl('line', { x1: 470, y1: 155, x2: 470, y2: 265, stroke: 'var(--text-bold)', 'stroke-width': 2, 'stroke-dasharray': '4 4' }));
+      g.appendChild(createEl('rect', { x: 460, y: 190, width: 20, height: 40, fill: 'var(--bg)', stroke: 'var(--text-bold)', 'stroke-width': 2, 'stroke-dasharray': '4 3' }));
+      const t = createEl('text', { x: 488, y: 206, class: 'component-text' });
+      t.innerHTML = `R<tspan dy="3" font-size="9">L</tspan><tspan dy="-3" font-size="11"> getrennt</tspan>`;
+      g.appendChild(t);
+      const t2 = createEl('text', { x: 488, y: 222, class: 'component-text', 'font-weight': 'normal' });
+      t2.textContent = 'Klick: zuschalten';
+      g.appendChild(t2);
+      svg.appendChild(g);
+    }
+
+    drawSource(svg, 110, 155, 'U1', U1, 'right');
+    drawResistor(svg, 300, 100, 'R1', R1, 'right', 'v');
+    drawResistor(svg, 300, 210, 'R2', R2, 'right', 'v');
+
+    drawSourceVoltageArrow(svg, 75, 105, 75, 205, 'U1', 'left', 1);
+    drawVoltageArrow(svg, 260, 55, 260, 145, 'UR1', 'left');
+    drawVoltageArrow(svg, 260, 165, 260, 255, loadConnected ? 'UR2L' : 'UR2', 'left');
+
+    drawCurrentArrow(svg, 190, 45, 230, 45, 'I', 'top');
+    drawCurrentArrow(svg, 300, 236, 300, 260, 'IR2', 'right');
+  } else {
+    const { U1, R1, R2, R3, R4 } = values;
+    // Zwei Spannungsteiler parallel: links R1/R2 (x = 280), rechts R3/R4 (x = 480)
+    svg.appendChild(createEl('rect', { x: 110, y: 45, width: 370, height: 220, class: 'wire' }));
+    wire(280, 45, 280, 265);
+
+    // Brückenzweig mit Spannungsmesser zwischen A und B
+    wire(280, 155, 364, 155);
+    wire(396, 155, 480, 155);
+    node(280, 45); node(280, 265);
+    node(280, 155); node(480, 155);
+
+    svg.appendChild(createEl('circle', { cx: 380, cy: 155, r: 16, fill: 'var(--bg)', stroke: 'var(--text-bold)', 'stroke-width': 2 }));
+    const vt = createEl('text', { x: 380, y: 160, 'text-anchor': 'middle', class: 'component-text', 'font-size': '13' });
+    vt.textContent = 'V';
+    svg.appendChild(vt);
+
+    const tA = createEl('text', { x: 290, y: 172, class: 'component-text', 'font-size': '13' }); tA.textContent = 'A'; svg.appendChild(tA);
+    const tB = createEl('text', { x: 470, y: 172, 'text-anchor': 'end', class: 'component-text', 'font-size': '13' }); tB.textContent = 'B'; svg.appendChild(tB);
+
+    drawSource(svg, 110, 155, 'U1', U1, 'right');
+    drawResistor(svg, 280, 100, 'R1', R1, 'right', 'v');
+    drawResistor(svg, 280, 210, 'R2', R2, 'right', 'v');
+    drawResistor(svg, 480, 100, 'R3', R3, 'right', 'v');
+    drawResistor(svg, 480, 210, 'R4', R4, 'right', 'v');
+
+    drawSourceVoltageArrow(svg, 75, 105, 75, 205, 'U1', 'left', 1);
+    drawVoltageArrow(svg, 240, 55, 240, 145, 'UR1', 'left');
+    drawVoltageArrow(svg, 240, 165, 240, 255, 'UR2', 'left');
+    drawVoltageArrow(svg, 440, 55, 440, 145, 'UR3', 'left');
+    drawVoltageArrow(svg, 440, 165, 440, 255, 'UR4', 'left');
+
+    // Brückenspannung U_AB von A nach B
+    drawVoltageArrow(svg, 335, 132, 425, 132, 'UAB', 'top');
+  }
+}
+
+// ===================== Zeichenfunktionen =====================
+function drawSource(svg, cx, cy, name, val, textPos = 'left') {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('class', 'interactive-element');
+  g.setAttribute('onclick', `openEditModal('${name}')`);
+
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('cx', cx); circle.setAttribute('cy', cy); circle.setAttribute('r', 16);
+  circle.setAttribute('stroke', 'var(--text-bold)'); circle.setAttribute('stroke-width', '2');
+  circle.setAttribute('fill', 'var(--bg)');
+  g.appendChild(circle);
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', cx); line.setAttribute('y1', cy - 16);
+  line.setAttribute('x2', cx); line.setAttribute('y2', cy + 16);
+  line.setAttribute('stroke', 'var(--text-bold)'); line.setAttribute('stroke-width', '1.8');
+  g.appendChild(line);
+
+  const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+  if (textPos === 'right') {
+    txt.setAttribute('x', cx + 22);
+    txt.setAttribute('text-anchor', 'start');
+  } else {
+    txt.setAttribute('x', cx - 22);
+    txt.setAttribute('text-anchor', 'end');
+  }
+
+  txt.setAttribute('y', cy + 4);
+  txt.setAttribute('class', 'component-text');
+
+  txt.innerHTML = `${name[0]}<tspan dy="3" font-size="9">${name[1]}</tspan><tspan dy="-3" font-size="11"> (${val}V)</tspan>`;
+  g.appendChild(txt);
+
+  svg.appendChild(g);
+}
+
+// Widerstand 40 × 20 (europäische Norm). orient 'v' = senkrecht eingebaut (20 × 40),
+// dann steht die Beschriftung rechts ('right') bzw. links ('left') neben dem Bauteil.
+function drawResistor(svg, cx, cy, name, val, textPos, orient = 'h') {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('class', 'interactive-element');
+  g.setAttribute('onclick', `openEditModal('${name}')`);
+
+  const vert = orient === 'v';
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', vert ? cx - 10 : cx - 20); rect.setAttribute('y', vert ? cy - 20 : cy - 10);
+  rect.setAttribute('width', vert ? 20 : 40); rect.setAttribute('height', vert ? 40 : 20);
+  rect.setAttribute('stroke', 'var(--text-bold)'); rect.setAttribute('stroke-width', '2');
+  rect.setAttribute('fill', 'var(--bg)');
+  g.appendChild(rect);
+
+  const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  if (vert) {
+    txt.setAttribute('y', cy + 4);
+    if (textPos === 'left') { txt.setAttribute('x', cx - 16); txt.setAttribute('text-anchor', 'end'); }
+    else { txt.setAttribute('x', cx + 16); txt.setAttribute('text-anchor', 'start'); }
+  } else {
+    txt.setAttribute('x', cx);
+    txt.setAttribute('y', textPos === 'top' ? cy - 15 : cy + 24);
+    txt.setAttribute('text-anchor', 'middle');
+  }
+  txt.setAttribute('class', 'component-text');
+  txt.innerHTML = `${name[0]}<tspan dy="3" font-size="9">${name.substring(1)}</tspan><tspan dy="-3" font-size="11"> = ${val}Ω</tspan>`;
+  g.appendChild(txt);
+
+  svg.appendChild(g);
+}
+
+function drawSourceVoltageArrow(svg, x1, y1, x2, y2, label, pos, dir) {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+  const startX = dir === 1 ? x1 : x2;
+  const startY = dir === 1 ? y1 : y2;
+  const endX = dir === 1 ? x2 : x1;
+  const endY = dir === 1 ? y2 : y1;
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', `M ${startX} ${startY} L ${endX} ${endY}`);
+  path.setAttribute('stroke', 'var(--volt-color)');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('marker-end', 'url(#arr-v)');
+  g.appendChild(path);
+
+  const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  let tx = (x1 + x2) / 2;
+  let ty = (y1 + y2) / 2;
+
+  if (pos === 'left') { tx -= 10; txt.setAttribute('text-anchor', 'end'); ty += 4; }
+  else if (pos === 'right') { tx += 10; txt.setAttribute('text-anchor', 'start'); ty += 4; }
+
+  txt.setAttribute('x', tx);
+  txt.setAttribute('y', ty);
+  txt.setAttribute('font-size', '11');
+  txt.setAttribute('fill', 'var(--volt-color)');
+  txt.setAttribute('font-weight', 'bold');
+
+  txt.innerHTML = `U<tspan dy="3" font-size="8">${label[1]}</tspan>`;
+  g.appendChild(txt);
+  svg.appendChild(g);
+}
+
+function drawVoltageArrow(svg, x1, y1, x2, y2, label, pos) {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+  path.setAttribute('stroke', 'var(--volt-color)');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('marker-end', 'url(#arr-v)');
+  g.appendChild(path);
+
+  const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  let tx = (x1 + x2) / 2;
+  let ty = (y1 + y2) / 2;
+
+  if (pos === 'top') { ty -= 8; txt.setAttribute('text-anchor', 'middle'); }
+  else if (pos === 'bottom') { ty += 16; txt.setAttribute('text-anchor', 'middle'); }
+  else if (pos === 'left') { tx -= 8; ty += 4; txt.setAttribute('text-anchor', 'end'); }
+  else if (pos === 'right') { tx += 8; ty += 4; txt.setAttribute('text-anchor', 'start'); }
+
+  txt.setAttribute('x', tx);
+  txt.setAttribute('y', ty);
+  txt.setAttribute('font-size', '11');
+  txt.setAttribute('fill', 'var(--volt-color)');
+  txt.setAttribute('font-weight', 'bold');
+
+  txt.innerHTML = `U<tspan dy="3" font-size="8">${label.substring(1)}</tspan>`;
+  g.appendChild(txt);
+  svg.appendChild(g);
+}
+
+function drawCurrentArrow(svg, x1, y1, x2, y2, label, pos) {
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  line.setAttribute('stroke', 'var(--curr-color)');
+  line.setAttribute('stroke-width', '2.2');
+  line.setAttribute('marker-end', 'url(#arr-c)');
+  g.appendChild(line);
+
+  const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  let tx = (x1 + x2) / 2;
+  let ty = (y1 + y2) / 2;
+
+  if (pos === 'top') ty -= 7;
+  else if (pos === 'bottom') ty += 15;
+  else if (pos === 'right') { tx += 8; ty += 4; txt.setAttribute('text-anchor', 'start'); }
+
+  txt.setAttribute('x', tx);
+  txt.setAttribute('y', ty);
+  if (pos !== 'right') txt.setAttribute('text-anchor', 'middle');
+  txt.setAttribute('font-size', '11');
+  txt.setAttribute('fill', 'var(--curr-color)');
+  txt.setAttribute('font-weight', 'bold');
+  txt.innerHTML = `I<tspan dy="3" font-size="8">${label.substring(1)}</tspan>`;
+  g.appendChild(txt);
+
+  svg.appendChild(g);
+}
+
+// ===================== Berechnung =====================
+// Schaltung 1: Spannungsteiler. Ergebnisobjekt wird auch für Tests verwendet.
+function computeDivider(v, loaded) {
+  const { U1, R1, R2, RL } = v;
+  const warnings = [];
+  const R2L = loaded ? parallel(R2, RL) : null;
+  const Rlow = loaded ? R2L : R2;          // unterer Teil des Teilers
+  const Rtot = R1 + Rlow;
+
+  const sol = solveBranch(U1, Rtot);       // I = U1 / (R1 + R2[L])
+  let I = sol.I, U2 = null, UR1 = null, IR2 = null, IL = null;
+
+  if (sol.state === 'contradiction') {
+    warnings.push(`Kurzschluss: R<sub>1</sub> + ${loaded ? 'R<sub>2L</sub>' : 'R<sub>2</sub>'} = 0 Ω bei U<sub>1</sub> ≠ 0 V. Die ideale Quelle ist kurzgeschlossen, die Werte sind nicht bestimmbar.`);
+  } else {
+    // Spannungsteiler-Regel; bei Rtot = 0 (und U1 = 0) liegen 0 V an
+    U2 = (Rtot !== 0) ? U1 * Rlow / Rtot : 0;
+    UR1 = U1 - U2;
+    if (sol.state === 'undetermined') warnings.push('R<sub>1</sub> und der untere Teil sind 0 Ω und U<sub>1</sub> = 0 V: Der Strom ist nicht festgelegt.');
+
+    if (!loaded) {
+      IR2 = (R2 !== 0) ? U2 / R2 : I;
+    } else {
+      if (R2 !== 0 && RL !== 0) { IR2 = U2 / R2; IL = U2 / RL; }
+      else if (R2 === 0 && RL !== 0) { IR2 = I; IL = U2 / RL; }
+      else if (RL === 0 && R2 !== 0) { IR2 = U2 / R2; IL = I; }
+      else { IR2 = null; IL = null; if (I !== null) warnings.push('R<sub>2</sub> = R<sub>L</sub> = 0 Ω: Die Aufteilung von I auf I<sub>R2</sub> und I<sub>L</sub> ist nicht festgelegt.'); }
+    }
+    if (R2 === 0 && (!loaded || RL !== 0) && I !== null) warnings.push('R<sub>2</sub> = 0 Ω (ideale Leitung): Der Strom durch R<sub>2</sub> folgt aus I, nicht aus U / R.');
+    if (loaded && RL === 0 && R2 !== 0 && I !== null) warnings.push('R<sub>L</sub> = 0 Ω schliesst den Ausgang kurz: I<sub>L</sub> = I.');
+  }
+  return { R2L, Rlow, Rtot, I, U2, UR1, IR2, IL, warnings };
+}
+
+// Schaltung 2: Brückenschaltung
+function computeBridge(v) {
+  const { U1, R1, R2, R3, R4 } = v;
+  const warnings = [];
+  const half = (Ra, Rb, names) => {
+    const s = Ra + Rb;
+    if (s !== 0) return Rb * U1 / s;
+    if (U1 === 0) return 0;
+    warnings.push(`Kurzschluss: ${names} = 0 Ω bei U<sub>1</sub> ≠ 0 V. Die ideale Quelle ist kurzgeschlossen.`);
+    return null;
+  };
+  const U2 = half(R1, R2, 'R<sub>1</sub> + R<sub>2</sub>');
+  const U4 = half(R3, R4, 'R<sub>3</sub> + R<sub>4</sub>');
+  const UAB = (U2 === null || U4 === null) ? null : U2 - U4;
+  const tol = 1e-9 * Math.max(1, Math.abs(U1));
+  const balanced = UAB !== null && Math.abs(UAB) < tol;
+  return { U2, U4, UAB, balanced, warnings };
+}
+
+function calculateAndDisplay() {
+  const out = document.getElementById('equation-display');
+  out.classList.add('eq-grid-wide');
+  if (activeCircuit === 1) out.innerHTML = displayDivider();
+  else out.innerHTML = displayBridge();
+}
+
+function displayDivider() {
+  const v = values;
+  const L = loadConnected;
+  const r = computeDivider(v, L);
+  const U2n = L ? S('U', 'R2L') : S('U', 'R2');      // Name der Ausgangsspannung
+  const Rn = L ? S('R', '2L') : S('R', '2');          // Name des unteren Widerstands
+  const RnVal = L ? fR(r.R2L) : vR(v.R2);
+
+  // ---------- Spannung (blau) ----------
+  let volt = `<div class="eq-block eq-block-volt">
+    <div class="eq-title eq-title-volt">Spannung ${U2n} – ${L ? 'belastet' : 'unbelastet'}</div>`;
+
+  if (L) {
+    volt += `<div class="eq-step">
+      ${line(`${S('R', '2L')} = ${frac(`${S('R', '2')} · ${S('R', 'L')}`, `${S('R', '2')} + ${S('R', 'L')}`)}`)}
+      ${line(`${S('R', '2L')} = ${frac(`${vR(v.R2)} · ${vR(v.RL)}`, `${vR(v.R2)} + ${vR(v.RL)}`)} = <b>${fR(r.R2L)}</b>`, 'eq-sub')}
+      <div class="eq-note">R<sub>2</sub> und R<sub>L</sub> sind parallel geschaltet.</div>
+    </div>`;
+  }
+
+  volt += `<div class="eq-step">
+      ${line(`${U2n} = ${S('U', '1')} · ${frac(Rn, `${S('R', '1')} + ${Rn}`)}`)}
+      ${line(`${U2n} = ${vU(v.U1)} · ${frac(RnVal, `${vR(v.R1)} + ${RnVal}`)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-volt">${U2n} = ${fV(r.U2)}</span>`)}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('U', 'R1')} = ${S('U', '1')} - ${U2n} = ${vU(v.U1)} - ${fV(r.U2)} = <span class="eq-res-volt">${fV(r.UR1)}</span>`)}
+    </div>`;
+
+  if (L) {
+    const r0 = computeDivider(v, false);
+    const drop = (r0.U2 !== null && r.U2 !== null) ? r0.U2 - r.U2 : null;
+    volt += `<div class="eq-note">Ohne Last wäre ${S('U', 'R2')} = ${fV(r0.U2)}. Durch R<sub>L</sub> sinkt die Ausgangsspannung um ${fV(drop)}.</div>`;
+  }
+  volt += `</div>`;
+
+  // ---------- Strom (rot/orange) ----------
+  let curr = `<div class="eq-block eq-block-curr">
+    <div class="eq-title eq-title-curr">Ströme – Ohmsches Gesetz</div>
+    <div class="eq-step">
+      ${line(`I = ${frac(S('U', '1'), `${S('R', '1')} + ${Rn}`)}`)}
+      ${line(`I = ${frac(vU(v.U1), `${vR(v.R1)} + ${RnVal}`)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-curr">I = ${fA(r.I)}</span>`)}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('I', 'R2')} = ${frac(U2n, S('R', '2'))}`)}
+      ${line(`${S('I', 'R2')} = ${frac(fV(r.U2), vR(v.R2))}`, 'eq-sub')}
+      ${line(`<span class="eq-res-curr">${S('I', 'R2')} = ${fA(r.IR2)}</span>`)}
+    </div>`;
+
+  if (L) {
+    curr += `<div class="eq-step">
+      ${line(`${S('I', 'L')} = ${frac(U2n, S('R', 'L'))}`)}
+      ${line(`${S('I', 'L')} = ${frac(fV(r.U2), vR(v.RL))}`, 'eq-sub')}
+      ${line(`<span class="eq-res-curr">${S('I', 'L')} = ${fA(r.IL)}</span>`)}
+    </div>
+    <div class="eq-note">Knoten: I = ${S('I', 'R2')} + ${S('I', 'L')} = ${fmt(r.IR2, 3)} A + ${fmt(r.IL, 3)} A</div>`;
+  } else {
+    curr += `<div class="eq-note">Unbelastet fliesst durch R<sub>1</sub> und R<sub>2</sub> derselbe Strom: ${S('I', 'R2')} = I.</div>`;
+  }
+  curr += `</div>`;
+
+  const warn = r.warnings.length ? `<div class="eq-block eq-block-result eq-wide">${warningHtml(r.warnings)}</div>` : '';
+  return volt + curr + warn;
+}
+
+function displayBridge() {
+  const v = values;
+  const r = computeBridge(v);
+
+  const block = (Un, Ra, Rb, a, b, val, side) => `<div class="eq-block eq-block-volt">
+    <div class="eq-title eq-title-volt">${side}: Spannung ${S('U', Un)}</div>
+    <div class="eq-step">
+      ${line(`${S('U', Un)} = ${S('U', '1')} · ${frac(S('R', Rb), `${S('R', Ra)} + ${S('R', Rb)}`)}`)}
+      ${line(`${S('U', Un)} = ${vU(v.U1)} · ${frac(vR(b), `${vR(a)} + ${vR(b)}`)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-volt">${S('U', Un)} = ${fV(val)}</span>`)}
+    </div>
+  </div>`;
+
+  let html = block('R2', '1', '2', v.R1, v.R2, r.U2, 'Linker Spannungsteiler (Punkt A)');
+  html += block('R4', '3', '4', v.R3, v.R4, r.U4, 'Rechter Spannungsteiler (Punkt B)');
+
+  const state = r.UAB === null ? '' : (r.balanced
+    ? `<span class="bridge-state bridge-ok">✓ Abgeglichene Brücke: U<sub>AB</sub> = 0 V</span>`
+    : `<span class="bridge-state bridge-off">Unabgeglichene Brücke: U<sub>AB</sub> ≠ 0 V</span>`);
+
+  const ratio = (a, b) => (b === 0 ? '—' : (a / b).toFixed(3));
+  html += `<div class="eq-block eq-block-bridge eq-wide">
+    <div class="eq-title eq-title-volt" style="font-size:1rem;">Brückenspannung</div>
+    <div class="eq-big">
+      ${line(`${S('U', 'AB')} = ${S('U', 'R2')} - ${S('U', 'R4')}`)}
+      ${line(`${S('U', 'AB')} = ${fV(r.U2)} - ${fV(r.U4)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-volt">${S('U', 'AB')} = ${fV(r.UAB)}</span>`)}
+    </div>
+    ${state}
+    <div class="eq-note" style="margin-top:8px;">Abgleichbedingung: ${frac(S('R', '1'), S('R', '2'))} = ${frac(S('R', '3'), S('R', '4'))} → ${ratio(v.R1, v.R2)} ${r.balanced ? '=' : '≠'} ${ratio(v.R3, v.R4)}</div>
+    ${warningHtml(r.warnings)}
+  </div>`;
+  return html;
+}
+
+// Start
+selectCircuit(1);
+</script>
+</body>
+</html>
