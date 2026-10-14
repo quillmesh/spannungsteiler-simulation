@@ -695,15 +695,16 @@ const UT = (() => {
   };
   // Bauteile: Mitte c, Winkel a (Richtung Anschluss a → b), Label-Versatz l (SVG-Pixel), Zeitfenster win
   // Anschlüsse sind fest mit dem Bauteil verbunden (gilt auch für gepolte Bauteile).
-  // Gedreht wird auf dem kürzesten Weg, also höchstens ±180°.
+  // Gedreht wird auf dem kürzesten Weg, also höchstens ±180°. Bei genau 180° legt ccw: true
+  // die Richtung fest: im Gegenuhrzeigersinn (im SVG negativer Winkel, da die y-Achse nach unten zeigt).
   const RES = [
     { id: 'R1', L: { c: [128, 135], a: 0,   l: [0, -15] }, R: { c: [662, 135],  a: 0,   l: [0, -15] } },
     { id: 'R2', L: { c: [222, 135], a: 0,   l: [0, -15] }, R: { c: [750, 135],  a: 0,   l: [0, -15] } },
     { id: 'R3', L: { c: [222, 198], a: 0,   l: [0, -15] }, R: { c: [830, 255],  a: 0,   l: [0, 24] } },
     { id: 'R4', L: { c: [337, 135], a: 0,   l: [0, -15] }, R: { c: [835, 135],  a: 0,   l: [0, -15] } },
     { id: 'R5', win: [0.1, 0.9], L: { c: [268, 167], a: 90,  l: [46, 4] },  R: { c: [875, 205],  a: 0,   l: [0, -15] } },
-    { id: 'R6', win: [0.3, 1],   L: { c: [210, 255], a: 0,   l: [0, 24] },  R: { c: [1006, 205], a: 180, l: [0, -15] } },
-    { id: 'R7', win: [0, 0.7],   L: { c: [333, 255], a: 180, l: [0, 24] },  R: { c: [915, 135],  a: 0,   l: [0, -15] } },
+    { id: 'R6', win: [0.3, 1],   ccw: true, L: { c: [210, 255], a: 0,   l: [0, 24] },  R: { c: [1006, 205], a: 180, l: [0, -15] } },
+    { id: 'R7', win: [0, 0.7],   ccw: true, L: { c: [333, 255], a: 180, l: [0, 24] },  R: { c: [915, 135],  a: 0,   l: [0, -15] } },
   ];
   const SRC = { L: [80, 225], R: [615, 222] };
   const HUBS = {
@@ -735,7 +736,7 @@ const UT = (() => {
   ];
 
   const win = (r, t) => r.win ? Math.min(1, Math.max(0, (t - r.win[0]) / (r.win[1] - r.win[0]))) : t;
-  const turn = r => { const d = ((r.R.a - r.L.a) % 360 + 540) % 360 - 180; return d === -180 ? 180 : d; };
+  const turn = r => { const d = ((r.R.a - r.L.a) % 360 + 540) % 360 - 180; return Math.abs(d) === 180 ? (r.ccw ? -180 : 180) : d; };
   function resState(r, t) {
     const tw = win(r, t);
     const c = lerp2(toL(r.L.c), toR(r.R.c), tw);
