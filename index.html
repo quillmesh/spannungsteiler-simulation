@@ -306,6 +306,22 @@
     .bridge-ok { color: var(--accent-m); }
     .bridge-off { color: var(--eq-highlight); }
 
+    /* ---- Schaltung 5: Netz entwirren (Knotenfarben aus der Solarized-Palette) ---- */
+    :root { --n-P: #dc322f; --n-A: #b58900; --n-B: #d33682; --n-C: #6c71c4; --n-E: #2aa198; --n-N: #073642; }
+    [data-theme="dark"] { --n-N: #93a1a1; }
+    .untangle-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 8px; }
+    .untangle-controls input[type="range"] { flex: 1 1 200px; min-width: 0; accent-color: var(--primary); }
+    .untangle-controls .lbl { font-size: 0.75rem; color: var(--text); }
+    .untangle-controls .pct { font-weight: bold; color: var(--text-bold); font-size: 0.85rem; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+    .untangle-handle { cursor: grab; }
+    .untangle-handle:active { cursor: grabbing; }
+    svg.focus .uw:not(.on) { opacity: 0.15; }
+    svg.focus .uw.on { stroke-width: 3.5; }
+    .eq-block-nodes { border-left: 4px solid var(--border); }
+    .node-line { cursor: pointer; margin: 3px 0; padding: 1px 4px; border-radius: 3px; }
+    .node-line:hover, .node-line.on { background: rgba(255,255,255,0.07); }
+    .node-sw { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+
     @media (max-width: 640px) {
       header { flex-wrap: wrap; gap: 8px; }
       .tabs { flex-wrap: wrap; }
@@ -322,6 +338,7 @@
     <div id="sub-title" style="font-size: 0.75rem; color: var(--text);">Klicken Sie auf die Spannungsquelle oder einen Widerstand, um den Wert anzupassen</div>
   </div>
   <div class="header-controls">
+    <button class="btn btn-active" id="btn-node-colors" onclick="toggleNodeColors()" style="display:none;">Knotenfarben: Ein</button>
     <button class="theme-toggle" onclick="toggleTheme()">Dark / Light</button>
   </div>
 </header>
@@ -332,11 +349,19 @@
     <button class="tab-btn" id="btn-tab-2" onclick="selectCircuit(2)">2. Parallelschaltung</button>
     <button class="tab-btn" id="btn-tab-3" onclick="selectCircuit(3)">3. Belasteter Spannungsteiler</button>
     <button class="tab-btn" id="btn-tab-4" onclick="selectCircuit(4)">4. Brückenschaltung</button>
+    <button class="tab-btn" id="btn-tab-5" onclick="selectCircuit(5)">5. Netz entwirren</button>
   </div>
 
   <div class="circuit-card">
     <div class="circuit-view">
       <svg id="circuit-svg" viewBox="0 0 640 310"></svg>
+    </div>
+    <div class="untangle-controls" id="untangle-controls" style="display:none;">
+      <button class="btn" id="btn-untangle" onclick="untangleToggle()">Auseinanderziehen</button>
+      <span class="lbl">Original</span>
+      <input type="range" id="untangle-slider" min="0" max="1000" value="0" oninput="untangleSlide()" aria-label="Fortschritt der Umformung">
+      <span class="lbl">Entwirrt</span>
+      <span class="pct" id="untangle-pct">0 %</span>
     </div>
   </div>
 
@@ -373,7 +398,8 @@ const circuitValues = {
   1: { U: 12, R1: 100, R2: 200, R3: 300 },
   2: { U: 12, R1: 100, R2: 200, R3: 50 },
   3: { U1: 12, R1: 100, R2: 100, RL: 100 },
-  4: { U1: 12, R1: 100, R2: 100, R3: 50, R4: 150 }
+  4: { U1: 12, R1: 100, R2: 100, R3: 50, R4: 150 },
+  5: { U: 12, R1: 100, R2: 100, R3: 200, R4: 200, R5: 200, R6: 200, R7: 200 }
 };
 let values = circuitValues[1];
 
@@ -392,9 +418,16 @@ function toggleLoad() {
 function selectCircuit(num) {
   activeCircuit = num;
   values = circuitValues[num];
-  for (let k = 1; k <= 4; k++) {
+  for (let k = 1; k <= 5; k++) {
     document.getElementById(`btn-tab-${k}`).classList.toggle('active', num === k);
   }
+  const u = num === 5;
+  document.getElementById('untangle-controls').style.display = u ? 'flex' : 'none';
+  document.getElementById('btn-node-colors').style.display = u ? 'inline-block' : 'none';
+  document.getElementById('sub-title').innerText = u
+    ? 'Ziehen Sie am Plus- und am Minuspol (oder am Schieberegler), um das Netz zu entwirren. Klick auf ein Bauteil: Wert anpassen'
+    : 'Klicken Sie auf die Spannungsquelle oder einen Widerstand, um den Wert anzupassen';
+  if (!u) untangleStop();
 
   updateSimulation();
 }
@@ -635,8 +668,245 @@ function renderSVG() {
     // Brückenspannung U_AB von A nach B
     const balanced = computeBridge(values).balanced;
     drawVoltageArrow(svg, 335, 132, 425, 132, 'UAB', 'top', balanced ? 'var(--accent-m)' : 'var(--volt-color)', balanced ? 'arr-m' : 'arr-v');
+  } else if (activeCircuit === 5) {
+    drawUntangle(svg, createEl);
   }
 }
+
+// ===================== Schaltung 5: Netz entwirren =====================
+// Die Leitungen sind wie Schnüre: Zieht man Plus- und Minuspol auseinander, gleitet das Netz
+// von der Originalskizze (Layout L) in die entwirrte Darstellung (Layout R). Die Knoten bleiben gleich.
+// Koordinaten in Skizzen-Einheiten; toL / toR rechnen in SVG-Koordinaten (640 × 310) um.
+const UT = (() => {
+  const S = 1.2, OXL = 151, OXR = 75, OY = 60;
+  const toL = ([x, y]) => [OXL + (x - 80) * S, OY + (y - 135) * S];
+  const toR = ([x, y]) => [OXR + (x - 615) * S, OY + (y - 135) * S];
+  const H = 20, HH = 10, SR = 16;     // Widerstand 40 × 20, Quelle r = 16 (wie Schaltungen 1–4)
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const lerp2 = (p, q, t) => [lerp(p[0], q[0], t), lerp(p[1], q[1], t)];
+
+  const NODES = {
+    P: { name: 'Pluspol (+)', m: 'Quelle, R<sub>1</sub>' },
+    A: { name: 'Knoten A', m: 'R<sub>1</sub>, R<sub>2</sub>, R<sub>3</sub>' },
+    B: { name: 'Knoten B', m: 'R<sub>2</sub>, R<sub>4</sub>, R<sub>5</sub>' },
+    C: { name: 'Knoten C', m: 'R<sub>3</sub>, R<sub>5</sub>, R<sub>6</sub>, R<sub>7</sub>' },
+    E: { name: 'Knoten E', m: 'R<sub>4</sub>, R<sub>7</sub>' },
+    N: { name: 'Minuspol (−)', m: 'R<sub>6</sub>, Quelle' },
+  };
+  // Bauteile: Mitte c, Winkel a (Richtung Anschluss a → b), Label-Versatz l (SVG-Pixel), Zeitfenster win
+  // Anschlüsse sind fest mit dem Bauteil verbunden (gilt auch für gepolte Bauteile).
+  // Gedreht wird auf dem kürzesten Weg, also höchstens ±180°.
+  const RES = [
+    { id: 'R1', L: { c: [128, 135], a: 0,   l: [0, -15] }, R: { c: [662, 135],  a: 0,   l: [0, -15] } },
+    { id: 'R2', L: { c: [222, 135], a: 0,   l: [0, -15] }, R: { c: [750, 135],  a: 0,   l: [0, -15] } },
+    { id: 'R3', L: { c: [222, 198], a: 0,   l: [0, -15] }, R: { c: [830, 255],  a: 0,   l: [0, 24] } },
+    { id: 'R4', L: { c: [337, 135], a: 0,   l: [0, -15] }, R: { c: [835, 135],  a: 0,   l: [0, -15] } },
+    { id: 'R5', win: [0.1, 0.9], L: { c: [268, 167], a: 90,  l: [46, 4] },  R: { c: [875, 205],  a: 0,   l: [0, -15] } },
+    { id: 'R6', win: [0.3, 1],   L: { c: [210, 255], a: 0,   l: [0, 24] },  R: { c: [1006, 205], a: 180, l: [0, -15] } },
+    { id: 'R7', win: [0, 0.7],   L: { c: [333, 255], a: 180, l: [0, 24] },  R: { c: [915, 135],  a: 0,   l: [0, -15] } },
+  ];
+  const SRC = { L: [80, 225], R: [615, 222] };
+  const HUBS = {
+    P1: { L: [80, 135],  R: [615, 135] },
+    A:  { L: [177, 135], R: [705, 135], dot: 'A' },
+    B:  { L: [268, 135], R: [795, 135], dot: 'B' },
+    C1: { L: [268, 198], R: [955, 205], dot: 'C' },
+    C2: { L: [268, 255], R: [955, 205], dot: 'C' },
+    N1: { L: [155, 312], R: [1055, 312] },
+  };
+  // Leitungen: Knoten, von, nach, Zwischenpunkte Layout L, Zwischenpunkte Layout R
+  const WIRES = [
+    ['P', 'src.top', 'hub.P1', [], []],
+    ['P', 'hub.P1', 'R1.a', [], []],
+    ['A', 'R1.b', 'hub.A', [], []],
+    ['A', 'hub.A', 'R2.a', [], []],
+    ['A', 'hub.A', 'R3.a', [[177, 198]], [[705, 255]]],
+    ['B', 'R2.b', 'hub.B', [], []],
+    ['B', 'hub.B', 'R4.a', [], []],
+    ['B', 'hub.B', 'R5.a', [], [[795, 205]]],
+    ['E', 'R4.b', 'R7.a', [[393, 135], [393, 255]], []],
+    ['C', 'R3.b', 'hub.C1', [], [[955, 255]]],
+    ['C', 'R5.b', 'hub.C1', [], []],
+    ['C', 'hub.C1', 'hub.C2', [], []],
+    ['C', 'hub.C2', 'R6.b', [], []],
+    ['C', 'hub.C2', 'R7.b', [], [[955, 135]]],
+    ['N', 'src.bot', 'hub.N1', [[80, 312]], [[615, 312]]],
+    ['N', 'hub.N1', 'R6.a', [[155, 255]], [[1055, 205]]],
+  ];
+
+  const win = (r, t) => r.win ? Math.min(1, Math.max(0, (t - r.win[0]) / (r.win[1] - r.win[0]))) : t;
+  const turn = r => { const d = ((r.R.a - r.L.a) % 360 + 540) % 360 - 180; return d === -180 ? 180 : d; };
+  function resState(r, t) {
+    const tw = win(r, t);
+    const c = lerp2(toL(r.L.c), toR(r.R.c), tw);
+    const ang = (r.L.a + turn(r) * tw) * Math.PI / 180;
+    const d = [Math.cos(ang) * H, Math.sin(ang) * H];
+    return { c, ang, tw, a: [c[0] - d[0], c[1] - d[1]], b: [c[0] + d[0], c[1] + d[1]] };
+  }
+  const srcPos = t => lerp2(toL(SRC.L), toR(SRC.R), t);
+  const hubPos = (id, t) => lerp2(toL(HUBS[id].L), toR(HUBS[id].R), t);
+  function endpoint(ref, t) {
+    if (ref === 'src.top') { const c = srcPos(t); return [c[0], c[1] - SR]; }
+    if (ref === 'src.bot') { const c = srcPos(t); return [c[0], c[1] + SR]; }
+    if (ref.startsWith('hub.')) return hubPos(ref.slice(4), t);
+    const [id, side] = ref.split('.');
+    return resState(RES.find(r => r.id === id), t)[side];
+  }
+
+  // Polylinie gleichmässig nach Bogenlänge abtasten; Zwischenstände = Mischung beider Layouts
+  const M = 64;
+  function resample(pts) {
+    const seg = []; let tot = 0;
+    for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(l); tot += l; }
+    const out = [];
+    for (let k = 0; k < M; k++) {
+      let d = tot * k / (M - 1), i = 0;
+      while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+      const f = seg[i] ? Math.min(1, d / seg[i]) : 0;
+      out.push(lerp2(pts[i], pts[i + 1] || pts[i], f));
+    }
+    return out;
+  }
+  const wires = WIRES.map(([n, from, to, wl, wr]) => ({
+    n, from, to,
+    L: resample([endpoint(from, 0), ...wl.map(toL), endpoint(to, 0)]),
+    R: resample([endpoint(from, 1), ...wr.map(toR), endpoint(to, 1)]),
+  }));
+  function wirePath(w, t) {
+    const S0 = endpoint(w.from, t), E0 = endpoint(w.to, t);
+    const pts = w.L.map((p, i) => lerp2(p, w.R[i], t));
+    const eS = [S0[0] - pts[0][0], S0[1] - pts[0][1]], eE = [E0[0] - pts[M - 1][0], E0[1] - pts[M - 1][1]];
+    return pts.map((p, i) => {
+      const u = i / (M - 1);
+      return (i ? 'L' : 'M') + (p[0] + eS[0] * (1 - u) + eE[0] * u).toFixed(1) + ' ' + (p[1] + eS[1] * (1 - u) + eE[1] * u).toFixed(1);
+    }).join('');
+  }
+  const handleX = id => [toL(HUBS[id].L)[0], toR(HUBS[id].R)[0]];
+  return { NODES, RES, HUBS, wires, wirePath, resState, srcPos, hubPos, handleX, lerp, lerp2 };
+})();
+
+let untangleT = 0, untangleAnim = null, nodeColors = true, focusNode = null, untangleDrag = null;
+
+function drawUntangle(svg, createEl) {
+  const t = untangleT;
+  const col = n => nodeColors ? `var(--n-${n})` : 'var(--text-bold)';
+  const v = values;
+
+  UT.wires.forEach(w => {
+    svg.appendChild(createEl('path', { d: UT.wirePath(w, t), class: 'wire uw' + (focusNode === w.n ? ' on' : ''), style: `stroke: ${col(w.n)}` }));
+  });
+
+  // Quelle mit Quellen-Spannungspfeil (35px links, wie in Schaltungen 1–4)
+  const sc = UT.srcPos(t);
+  drawSource(svg, sc[0], sc[1], 'U', v.U, 'right');
+  drawSourceVoltageArrow(svg, sc[0] - 35, sc[1] - 50, sc[0] - 35, sc[1] + 50, 'U', 'left', 1);
+
+  UT.RES.forEach(r => {
+    const s = UT.resState(r, t);
+    const g = createEl('g', { class: 'interactive-element', onclick: `openEditModal('${r.id}')` });
+    g.appendChild(createEl('rect', { x: -20, y: -10, width: 40, height: 20, stroke: 'var(--text-bold)', 'stroke-width': 2, fill: 'var(--bg)',
+      transform: `translate(${s.c[0].toFixed(1)} ${s.c[1].toFixed(1)}) rotate(${(s.ang * 180 / Math.PI).toFixed(2)})` }));
+    const off = UT.lerp2(r.L.l, r.R.l, s.tw);
+    const txt = createEl('text', { x: (s.c[0] + off[0]).toFixed(1), y: (s.c[1] + off[1]).toFixed(1), 'text-anchor': 'middle', class: 'component-text' });
+    txt.innerHTML = `R<tspan dy="3" font-size="9">${r.id.substring(1)}</tspan><tspan dy="-3" font-size="11"> = ${v[r.id]}Ω</tspan>`;
+    g.appendChild(txt);
+    svg.appendChild(g);
+  });
+
+  Object.entries(UT.HUBS).filter(([, h]) => h.dot).forEach(([id, h]) => {
+    const p = UT.hubPos(id, t);
+    svg.appendChild(createEl('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 4, class: 'uw' + (focusNode === h.dot ? ' on' : ''), style: `fill: ${col(h.dot)}` }));
+  });
+
+  // Griffe an Plus- und Minuspol
+  [['P1', 'P', '+', '← ziehen', -16], ['N1', 'N', '−', 'ziehen →', 16]].forEach(([hub, n, glyph, hint, dx]) => {
+    const p = UT.hubPos(hub, t);
+    const g = createEl('g', { class: 'untangle-handle', 'data-hub': hub, transform: `translate(${p[0].toFixed(1)} ${p[1].toFixed(1)})` });
+    g.appendChild(createEl('circle', { r: 18, fill: 'transparent' }));
+    g.appendChild(createEl('circle', { r: 10, style: `fill: ${nodeColors ? `var(--n-${n})` : 'var(--primary)'}`, stroke: 'var(--bg)', 'stroke-width': 2 }));
+    const gt = createEl('text', { y: 4.5, 'text-anchor': 'middle', 'font-size': 15, 'font-weight': 'bold', fill: 'var(--bg)', 'pointer-events': 'none' });
+    gt.textContent = glyph;
+    g.appendChild(gt);
+    svg.appendChild(g);
+    if (t < 0.25) {
+      const ht = createEl('text', { x: (p[0] + dx).toFixed(1), y: (p[1] + 4).toFixed(1), 'text-anchor': dx < 0 ? 'end' : 'start', class: 'component-text', 'font-weight': 'normal', opacity: (1 - t * 4).toFixed(2) });
+      ht.textContent = hint;
+      svg.appendChild(ht);
+    }
+  });
+  svg.classList.toggle('focus', !!focusNode);
+}
+
+function setUntangle(t, fromSlider) {
+  untangleT = Math.min(1, Math.max(0, t));
+  if (!fromSlider) document.getElementById('untangle-slider').value = Math.round(untangleT * 1000);
+  document.getElementById('untangle-pct').textContent = Math.round(untangleT * 100) + ' %';
+  document.getElementById('btn-untangle').textContent = untangleT > 0.5 ? 'Zurück zum Original' : 'Auseinanderziehen';
+  renderSVG();
+}
+
+function untangleStop() {
+  if (untangleAnim) cancelAnimationFrame(untangleAnim);
+  untangleAnim = null;
+  document.getElementById('circuit-svg').classList.remove('focus');
+}
+
+function untangleSlide() {
+  untangleStop();
+  setUntangle(document.getElementById('untangle-slider').value / 1000, true);
+}
+
+function untangleToggle() {
+  untangleStop();
+  const t0 = untangleT, target = t0 > 0.5 ? 0 : 1;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setUntangle(target); return; }
+  const dur = 2600 * Math.abs(target - t0) + 200, start = performance.now();
+  const ease = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  const step = now => {
+    const k = Math.min(1, (now - start) / dur);
+    setUntangle(UT.lerp(t0, target, ease(k)));
+    untangleAnim = k < 1 ? requestAnimationFrame(step) : null;
+  };
+  untangleAnim = requestAnimationFrame(step);
+}
+
+function toggleNodeColors() {
+  nodeColors = !nodeColors;
+  const btn = document.getElementById('btn-node-colors');
+  btn.innerText = `Knotenfarben: ${nodeColors ? 'Ein' : 'Aus'}`;
+  btn.classList.toggle('btn-active', nodeColors);
+  updateSimulation();
+}
+
+function toggleFocusNode(n) {
+  focusNode = focusNode === n ? null : n;
+  if (focusNode && !nodeColors) toggleNodeColors(); else updateSimulation();
+}
+
+// Ziehen an den Griffen. Das SVG wird bei jedem Schritt neu gezeichnet,
+// darum hängt die Zeigerverfolgung am <svg> selbst und nicht am Griff.
+(() => {
+  const svg = document.getElementById('circuit-svg');
+  const svgX = e => { const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()).x; };
+  svg.addEventListener('pointerdown', e => {
+    const h = activeCircuit === 5 && e.target.closest('.untangle-handle');
+    if (!h) return;
+    e.preventDefault();
+    untangleStop();
+    const [x0, x1] = UT.handleX(h.getAttribute('data-hub'));
+    untangleDrag = { x0, x1, off: svgX(e) - UT.lerp(x0, x1, untangleT) };
+    svg.setPointerCapture(e.pointerId);
+    svg.style.touchAction = 'none';
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!untangleDrag) return;
+    const d = untangleDrag;
+    setUntangle((svgX(e) - d.off - d.x0) / (d.x1 - d.x0));
+  });
+  const end = () => { untangleDrag = null; svg.style.touchAction = ''; };
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+})();
 
 // ===================== Zeichenfunktionen =====================
 function drawSource(svg, cx, cy, name, val, textPos = 'left') {
@@ -883,11 +1153,78 @@ function computeBridge(v) {
 function calculateAndDisplay() {
   const out = document.getElementById('equation-display');
   out.classList.add('eq-grid-wide');
-  out.classList.toggle('eq-grid-3', activeCircuit <= 2);
+  out.classList.toggle('eq-grid-3', activeCircuit <= 2 || activeCircuit === 5);
   if (activeCircuit === 1) out.innerHTML = displaySeries();
   else if (activeCircuit === 2) out.innerHTML = displayParallel();
   else if (activeCircuit === 3) out.innerHTML = displayDivider();
-  else out.innerHTML = displayBridge();
+  else if (activeCircuit === 4) out.innerHTML = displayBridge();
+  else out.innerHTML = displayUntangle();
+}
+
+// ===================== Schaltung 5: Ersatzwiderstand =====================
+// Lesart des entwirrten Netzes: R4 + R7 in Serie, parallel zu R5, dazu R2 in Serie,
+// das Ganze parallel zu R3, zuletzt R1 und R6 in Serie.
+function computeUntangle(v) {
+  const warnings = [];
+  const R47 = v.R4 + v.R7;
+  const R457 = parallel(v.R5, R47);
+  const R2457 = v.R2 + R457;
+  const RA = parallel(v.R3, R2457);
+  const Rtot = v.R1 + RA + v.R6;
+  const sol = solveBranch(v.U, Rtot);
+  if (sol.state === 'contradiction') warnings.push('Kurzschluss: R<sub>Tot</sub> = 0 Ω bei U ≠ 0 V. Die ideale Quelle ist kurzgeschlossen, der Strom ist nicht bestimmbar.');
+  if (sol.state === 'undetermined') warnings.push('R<sub>Tot</sub> = 0 Ω und U = 0 V: Der Strom ist nicht festgelegt.');
+  return { R47, R457, R2457, RA, Rtot, I: sol.I, warnings };
+}
+
+function displayUntangle() {
+  const v = values;
+  const r = computeUntangle(v);
+  const par = (a, b) => frac(`${a} · ${b}`, `${a} + ${b}`);
+
+  const nodes = `<div class="eq-block eq-block-nodes">
+    <div class="eq-title" style="color: var(--eq-text);">Knoten</div>
+    ${Object.entries(UT.NODES).map(([k, n]) => {
+      const c = k === 'N' ? 'var(--eq-text)' : `var(--n-${k})`;   // Gleichungskarte ist immer dunkel
+      return `<div class="node-line${focusNode === k ? ' on' : ''}" onclick="toggleFocusNode('${k}')"><span class="node-sw" style="background: ${c};"></span><b style="color: ${c};">${n.name}</b>: ${n.m}</div>`;
+    }).join('')}
+    <div class="eq-note">Gleiche Farbe = leitend verbunden. Klick auf einen Knoten hebt ihn hervor.</div>
+  </div>`;
+
+  const res = `<div class="eq-block eq-block-res">
+    <div class="eq-title eq-title-res">Ersatzwiderstand – von innen nach aussen</div>
+    <div class="eq-step">
+      ${line(`${S('R', '47')} = ${S('R', '4')} + ${S('R', '7')} = ${vR(v.R4)} + ${vR(v.R7)} = <span class="eq-res-res">${fR(r.R47)}</span>`)}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('R', '457')} = ${par(S('R', '5'), S('R', '47'))}`)}
+      ${line(`${S('R', '457')} = ${par(vR(v.R5), fR(r.R47))} = <span class="eq-res-res">${fR(r.R457)}</span>`, 'eq-sub')}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('R', '2457')} = ${S('R', '2')} + ${S('R', '457')} = ${vR(v.R2)} + ${fR(r.R457)} = <span class="eq-res-res">${fR(r.R2457)}</span>`)}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('R', '23457')} = ${par(S('R', '3'), S('R', '2457'))}`)}
+      ${line(`${S('R', '23457')} = ${par(vR(v.R3), fR(r.R2457))} = <span class="eq-res-res">${fR(r.RA)}</span>`, 'eq-sub')}
+    </div>
+    <div class="eq-step">
+      ${line(`${S('R', 'Tot')} = ${S('R', '1')} + ${S('R', '23457')} + ${S('R', '6')}`)}
+      ${line(`${S('R', 'Tot')} = ${vR(v.R1)} + ${fR(r.RA)} + ${vR(v.R6)}`, 'eq-sub')}
+      ${line(`<span class="eq-res-res">${S('R', 'Tot')} = ${fR(r.Rtot)}</span>`)}
+    </div>
+  </div>`;
+
+  const curr = `<div class="eq-block eq-block-curr">
+    <div class="eq-title eq-title-curr">Gesamtstrom</div>
+    <div class="eq-step">
+      ${line(`I = ${frac('U', S('R', 'Tot'))}`)}
+      ${line(`I = ${frac(vU(v.U), fR(r.Rtot))}`, 'eq-sub')}
+      ${line(`<span class="eq-res-curr">I = ${fA(r.I)}</span>`)}
+    </div>
+    <div class="eq-note">Erst entwirren, dann zusammenfassen: In der rechten Darstellung sieht man direkt, was in Serie und was parallel liegt.</div>
+  </div>`;
+
+  return nodes + res + curr + (r.warnings.length ? `<div class="eq-block eq-block-info eq-wide">${warningHtml(r.warnings)}</div>` : '');
 }
 
 // ===================== Serien- und Parallelschaltung =====================
